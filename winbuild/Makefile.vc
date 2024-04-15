@@ -124,6 +124,15 @@ USE_UNICODE = true
 USE_UNICODE = false
 !ENDIF
 
+!IFNDEF WITH_GDK
+USE_GDK = false
+!ELSEIF "$(WITH_GDK)"=="yes"
+USE_GDK = true
+USE_UNICODE = true
+!ELSEIF "$(WITH_GDK)"=="no"
+USE_GDK = false
+!ENDIF
+
 CONFIG_NAME_LIB = libcurl
 
 !IF "$(WITH_SSL)"=="dll"
@@ -294,6 +303,7 @@ $(MODE):
 	@SET USE_SSPI=$(USE_SSPI)
 	@SET USE_SCHANNEL=$(USE_SCHANNEL)
 	@SET USE_UNICODE=$(USE_UNICODE)
+	@SET USE_GDK=$(USE_GDK)
 # compatibility bit
 	@SET WITH_NGHTTP2=$(WITH_NGHTTP2)
 

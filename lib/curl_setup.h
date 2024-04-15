@@ -83,12 +83,12 @@
 
 #else /* HAVE_CONFIG_H */
 
-#ifdef _WIN32_WCE
+#if defined(WINAPI_FAMILY) && (WINAPI_FAMILY == WINAPI_FAMILY_GAMES)
+#  include "config-gdk.h"
+#elif defined(_WIN32_WCE)
 #  include "config-win32ce.h"
-#else
-#  ifdef _WIN32
-#    include "config-win32.h"
-#  endif
+#elif defined(_WIN32)
+#  include "config-gdk.h"
 #endif
 
 #ifdef macintosh
