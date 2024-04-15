@@ -164,7 +164,7 @@
 #endif
 
 /* Define if you have the strdup function. */
-#define HAVE_STRDUP 0 //AMARTZ TODO:
+//#define HAVE_STRDUP 0 //AMARTZ TODO:
 
 /* Define if you have the stricmp function. */
 #define HAVE_STRICMP 1
@@ -457,23 +457,6 @@ Vista
 #  error "Only one DNS lookup specialty may be defined at most"
 #endif
 
-/* ---------------------------------------------------------------- */
-/*                           LDAP SUPPORT                           */
-/* ---------------------------------------------------------------- */
-
-#if defined(CURL_HAS_NOVELL_LDAPSDK)
-#undef USE_WIN32_LDAP
-#define HAVE_LDAP_SSL_H 1
-#define HAVE_LDAP_URL_PARSE 1
-#elif defined(CURL_HAS_OPENLDAP_LDAPSDK)
-#undef USE_WIN32_LDAP
-#define HAVE_LDAP_URL_PARSE 1
-#else
-#undef HAVE_LDAP_URL_PARSE
-#define HAVE_LDAP_SSL 1
-#define USE_WIN32_LDAP 1
-#endif
-
 /* Define to use the Windows crypto library. */
 #if !defined(CURL_WINDOWS_APP)
 #define USE_WIN32_CRYPTO
@@ -512,5 +495,17 @@ Vista
 #if defined(USE_IPV6)
 #  define ENABLE_IPV6 1
 #endif
+
+#ifndef UNICODE
+#  define UNICODE
+#endif
+
+#ifndef _UNICODE
+#  define _UNICODE
+#endif
+
+#define CURL_DISABLE_FILE 1
+#define CURL_DISABLE_TELNET 1
+#define CURL_DISABLE_LDAP 1
 
 #endif /* HEADER_CURL_CONFIG_GDK_H */

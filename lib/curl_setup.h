@@ -88,7 +88,7 @@
 #elif defined(_WIN32_WCE)
 #  include "config-win32ce.h"
 #elif defined(_WIN32)
-#  include "config-gdk.h"
+#  include "config-win32.h"
 #endif
 
 #ifdef macintosh
