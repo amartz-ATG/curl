@@ -70,18 +70,15 @@ numeric="$(printf "%02x%02x%02x\n" "$major" "$minor" "$patch")"
 
 HEADER=include/curl/curlver.h
 CHEADER=src/tool_version.h
-PLIST=lib/libcurl.plist
-PLISTO=$PLIST
 
 if test -z "$only"; then
   ext=".dist"
   # when not setting up version numbers locally
-  for a in $HEADER $CHEADER $PLIST; do
+  for a in $HEADER $CHEADER; do
     cp "$a" "$a$ext"
   done
   HEADER="$HEADER$ext"
   CHEADER="$CHEADER$ext"
-  PLIST="$PLIST$ext"
 fi
 
 # requires a date command that knows + for format and -d for date input
@@ -103,9 +100,6 @@ rm -f "$HEADER.bak"
 # Replace version number in header file:
 sed -i.bak "s/#define CURL_VERSION .*/#define CURL_VERSION \"$curlversion\"/g" "$CHEADER"
 rm -f "$CHEADER.bak"
-
-# Replace version number in plist file:
-sed "s/@CURL_PLIST_VERSION@/$curlversion/g" < "$PLISTO.in" > "$PLIST"
 
 if test -n "$only"; then
   # done!
@@ -152,23 +146,11 @@ else
   automake --include-deps Makefile >/dev/null
 fi
 
-############################################################################
-#
-# make the generated file newer than the man page
-
-touch src/tool_hugehelp.c
-
-############################################################################
-#
-# Update the IDE files
-echo "make vc-ide"
-make -s vc-ide
-
 echo "produce CHANGES"
 git log --pretty=fuller --no-color --date=short --decorate=full -1000 | ./scripts/log2changes.pl > CHANGES.dist
 
 echo "produce RELEASE-TOOLS.md"
-./scripts/release-tools.sh > docs/RELEASE-TOOLS.md.dist
+./scripts/release-tools.sh "$timestamp" "$version" > docs/RELEASE-TOOLS.md.dist
 
 ############################################################################
 #
@@ -191,8 +173,8 @@ retar() {
   mkdir "$tempdir"
   cd "$tempdir"
   gzip -dc "../$targz" | tar -xf -
-  find curl-* -type f -exec touch -c -t "$filestamp" '{}' +
-  find curl-* -type f | sort | tar --create --format=ustar --owner=0 --group=0 --numeric-owner --files-from - | gzip --best --no-name > out.tar.gz
+  find curl-* -depth -exec touch -c -t "$filestamp" '{}' +
+  tar --create --format=ustar --owner=0 --group=0 --numeric-owner --sort=name curl-* | gzip --best --no-name > out.tar.gz
   mv out.tar.gz ../
   cd ..
   rm -rf "$tempdir"
@@ -229,7 +211,6 @@ makezip() {
   mkdir "$tempdir"
   cd "$tempdir"
   gzip -dc "../$targz" | tar -xf -
-  find . -depth -type d -exec touch -c -t "$filestamp" '{}' +
   find . | sort | zip -9 -X "$zip" -@ >/dev/null
   mv "$zip" ../
   cd ..

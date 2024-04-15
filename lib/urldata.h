@@ -104,7 +104,7 @@ typedef unsigned int curl_prot_t;
 #define PROTO_FAMILY_SSH  (CURLPROTO_SCP|CURLPROTO_SFTP)
 
 #if !defined(CURL_DISABLE_FTP) || defined(USE_SSH) ||   \
-  !defined(CURL_DISABLE_POP3)
+  !defined(CURL_DISABLE_POP3) || !defined(CURL_DISABLE_FILE)
 /* these protocols support CURLOPT_DIRLISTONLY */
 #define CURL_LIST_ONLY_PROTOCOL 1
 #endif
@@ -279,6 +279,8 @@ struct ssl_peer {
   char *dispname;        /* display version of hostname */
   char *sni;             /* SNI version of hostname or NULL if not usable */
   ssl_peer_type type;    /* type of the peer information */
+  int port;              /* port we are talking to */
+  int transport;         /* TCP or QUIC */
 };
 
 struct ssl_primary_config {
@@ -344,6 +346,7 @@ struct Curl_ssl_session {
   long age;         /* just a number, the higher the more recent */
   int remote_port;  /* remote port */
   int conn_to_port; /* remote port for the connection (may be -1) */
+  int transport;    /* TCP or QUIC */
   struct ssl_primary_config ssl_config; /* setup for this session */
 };
 
@@ -698,11 +701,17 @@ struct Curl_handler {
   CURLcode (*disconnect)(struct Curl_easy *, struct connectdata *,
                          bool dead_connection);
 
-  /* If used, this function gets called from transfer.c:readwrite_data() to
+  /* If used, this function gets called from transfer.c to
      allow the protocol to do extra handling in writing response to
      the client. */
   CURLcode (*write_resp)(struct Curl_easy *data, const char *buf, size_t blen,
                          bool is_eos);
+
+  /* If used, this function gets called from transfer.c to
+     allow the protocol to do extra handling in writing a single response
+     header line to the client. */
+  CURLcode (*write_resp_hd)(struct Curl_easy *data,
+                            const char *hd, size_t hdlen, bool is_eos);
 
   /* This function can perform various checks on the connection. See
      CONNCHECK_* for more information about the checks that can be performed,
@@ -975,7 +984,7 @@ struct connectdata {
   int remote_port; /* the remote port, not the proxy port! */
   int conn_to_port; /* the remote port to connect to. valid only if
                        bits.conn_to_port is set */
-#ifdef ENABLE_IPV6
+#ifdef USE_IPV6
   unsigned int scope_id;  /* Scope id for IPv6 */
 #endif
   unsigned short localport;
@@ -1377,7 +1386,6 @@ struct UrlState {
   BIT(done); /* set to FALSE when Curl_init_do() is called and set to TRUE
                 when multi_done() is called, to prevent multi_done() to get
                 invoked twice when the multi interface is used. */
-  BIT(previouslypending); /* this transfer WAS in the multi->pending queue */
 #ifndef CURL_DISABLE_COOKIES
   BIT(cookie_engine);
 #endif
@@ -1697,7 +1705,7 @@ struct UserDefined {
   unsigned int new_file_perms;      /* when creating remote files */
   char *str[STRING_LAST]; /* array of strings, pointing to allocated memory */
   struct curl_blob *blobs[BLOB_LAST];
-#ifdef ENABLE_IPV6
+#ifdef USE_IPV6
   unsigned int scope_id;  /* Scope id for IPv6 */
 #endif
   curl_prot_t allowed_protocols;

@@ -113,7 +113,7 @@ void Curl_ngtcp2_ver(char *p, size_t len)
 struct cf_ngtcp2_ctx {
   struct cf_quic_ctx q;
   struct ssl_peer peer;
-  struct quic_tls_ctx tls;
+  struct curl_tls_ctx tls;
   ngtcp2_path connected_path;
   ngtcp2_conn *qconn;
   ngtcp2_cid dcid;
@@ -130,6 +130,7 @@ struct cf_ngtcp2_ctx {
   struct curltime handshake_at;      /* time connect handshake finished */
   struct curltime reconnect_at;      /* time the next attempt should start */
   struct bufc_pool stream_bufcp;     /* chunk pool for streams */
+  struct dynbuf scratch;             /* temp buffer for header construction */
   size_t max_stream_window;          /* max flow window for one stream */
   uint64_t max_idle_ms;              /* max idle time for QUIC connection */
   int qlogfd;
@@ -765,12 +766,6 @@ static int cb_h3_stream_close(nghttp3_conn *conn, int64_t sid,
   return 0;
 }
 
-static CURLcode write_resp_hds(struct Curl_easy *data,
-                               const char *buf, size_t blen)
-{
-  return Curl_xfer_write_resp(data, (char *)buf, blen, FALSE);
-}
-
 static int cb_h3_recv_data(nghttp3_conn *conn, int64_t stream3_id,
                            const uint8_t *buf, size_t blen,
                            void *user_data, void *stream_user_data)
@@ -835,7 +830,7 @@ static int cb_h3_end_headers(nghttp3_conn *conn, int64_t sid,
   if(!stream)
     return 0;
   /* add a CRLF only if we've received some headers */
-  result = write_resp_hds(data, "\r\n", 2);
+  result = Curl_xfer_write_resp_hd(data, STRCONST("\r\n"), stream->closed);
   if(result) {
     return -1;
   }
@@ -855,6 +850,7 @@ static int cb_h3_recv_header(nghttp3_conn *conn, int64_t sid,
                              void *user_data, void *stream_user_data)
 {
   struct Curl_cfilter *cf = user_data;
+  struct cf_ngtcp2_ctx *ctx = cf->ctx;
   curl_int64_t stream_id = (curl_int64_t)sid;
   nghttp3_vec h3name = nghttp3_rcbuf_get_buf(name);
   nghttp3_vec h3val = nghttp3_rcbuf_get_buf(value);
@@ -872,17 +868,23 @@ static int cb_h3_recv_header(nghttp3_conn *conn, int64_t sid,
     return 0;
 
   if(token == NGHTTP3_QPACK_TOKEN__STATUS) {
-    char line[14]; /* status line is always 13 characters long */
-    size_t ncopy;
 
     result = Curl_http_decode_status(&stream->status_code,
                                      (const char *)h3val.base, h3val.len);
     if(result)
       return -1;
-    ncopy = msnprintf(line, sizeof(line), "HTTP/3 %03d \r\n",
-                      stream->status_code);
-    CURL_TRC_CF(data, cf, "[%" CURL_PRId64 "] status: %s", stream_id, line);
-    result = write_resp_hds(data, line, ncopy);
+    Curl_dyn_reset(&ctx->scratch);
+    result = Curl_dyn_addn(&ctx->scratch, STRCONST("HTTP/3 "));
+    if(!result)
+      result = Curl_dyn_addn(&ctx->scratch,
+                             (const char *)h3val.base, h3val.len);
+    if(!result)
+      result = Curl_dyn_addn(&ctx->scratch, STRCONST(" \r\n"));
+    if(!result)
+      result = Curl_xfer_write_resp_hd(data, Curl_dyn_ptr(&ctx->scratch),
+                                       Curl_dyn_len(&ctx->scratch), FALSE);
+    CURL_TRC_CF(data, cf, "[%" CURL_PRId64 "] status: %s",
+                stream_id, Curl_dyn_ptr(&ctx->scratch));
     if(result) {
       return -1;
     }
@@ -892,19 +894,19 @@ static int cb_h3_recv_header(nghttp3_conn *conn, int64_t sid,
     CURL_TRC_CF(data, cf, "[%" CURL_PRId64 "] header: %.*s: %.*s",
                 stream_id, (int)h3name.len, h3name.base,
                 (int)h3val.len, h3val.base);
-    result = write_resp_hds(data, (const char *)h3name.base, h3name.len);
-    if(result) {
-      return -1;
-    }
-    result = write_resp_hds(data, ": ", 2);
-    if(result) {
-      return -1;
-    }
-    result = write_resp_hds(data, (const char *)h3val.base, h3val.len);
-    if(result) {
-      return -1;
-    }
-    result = write_resp_hds(data, "\r\n", 2);
+    Curl_dyn_reset(&ctx->scratch);
+    result = Curl_dyn_addn(&ctx->scratch,
+                           (const char *)h3name.base, h3name.len);
+    if(!result)
+      result = Curl_dyn_addn(&ctx->scratch, STRCONST(": "));
+    if(!result)
+      result = Curl_dyn_addn(&ctx->scratch,
+                             (const char *)h3val.base, h3val.len);
+    if(!result)
+      result = Curl_dyn_addn(&ctx->scratch, STRCONST("\r\n"));
+    if(!result)
+      result = Curl_xfer_write_resp_hd(data, Curl_dyn_ptr(&ctx->scratch),
+                                       Curl_dyn_len(&ctx->scratch), FALSE);
     if(result) {
       return -1;
     }
@@ -1857,6 +1859,7 @@ static void cf_ngtcp2_ctx_clear(struct cf_ngtcp2_ctx *ctx)
   if(ctx->qconn)
     ngtcp2_conn_del(ctx->qconn);
   Curl_bufcp_free(&ctx->stream_bufcp);
+  Curl_dyn_free(&ctx->scratch);
   Curl_ssl_peer_cleanup(&ctx->peer);
 
   memset(ctx, 0, sizeof(*ctx));
@@ -1909,25 +1912,60 @@ static void cf_ngtcp2_destroy(struct Curl_cfilter *cf, struct Curl_easy *data)
   (void)save;
 }
 
-static CURLcode tls_ctx_setup(struct quic_tls_ctx *ctx,
-                              struct Curl_cfilter *cf,
-                              struct Curl_easy *data)
+#ifdef USE_OPENSSL
+/* The "new session" callback must return zero if the session can be removed
+ * or non-zero if the session has been put into the session cache.
+ */
+static int quic_ossl_new_session_cb(SSL *ssl, SSL_SESSION *ssl_sessionid)
 {
+  struct Curl_cfilter *cf;
+  struct cf_ngtcp2_ctx *ctx;
+  struct Curl_easy *data;
+  ngtcp2_crypto_conn_ref *cref;
+
+  cref = (ngtcp2_crypto_conn_ref *)SSL_get_app_data(ssl);
+  cf = cref? cref->user_data : NULL;
+  ctx = cf? cf->ctx : NULL;
+  data = cf? CF_DATA_CURRENT(cf) : NULL;
+  if(cf && data && ctx) {
+    CURLcode result = Curl_ossl_add_session(cf, data, &ctx->peer,
+                                            ssl_sessionid);
+    return result? 0 : 1;
+  }
+  return 0;
+}
+#endif /* USE_OPENSSL */
+
+static CURLcode tls_ctx_setup(struct Curl_cfilter *cf,
+                              struct Curl_easy *data,
+                              void *user_data)
+{
+  struct curl_tls_ctx *ctx = user_data;
   (void)cf;
 #ifdef USE_OPENSSL
 #if defined(OPENSSL_IS_BORINGSSL) || defined(OPENSSL_IS_AWSLC)
-  if(ngtcp2_crypto_boringssl_configure_client_context(ctx->ssl_ctx) != 0) {
+  if(ngtcp2_crypto_boringssl_configure_client_context(ctx->ossl.ssl_ctx)
+     != 0) {
     failf(data, "ngtcp2_crypto_boringssl_configure_client_context failed");
     return CURLE_FAILED_INIT;
   }
 #else
-  if(ngtcp2_crypto_quictls_configure_client_context(ctx->ssl_ctx) != 0) {
+  if(ngtcp2_crypto_quictls_configure_client_context(ctx->ossl.ssl_ctx) != 0) {
     failf(data, "ngtcp2_crypto_quictls_configure_client_context failed");
     return CURLE_FAILED_INIT;
   }
 #endif /* !OPENSSL_IS_BORINGSSL && !OPENSSL_IS_AWSLC */
+  /* Enable the session cache because it's a prerequisite for the
+   * "new session" callback. Use the "external storage" mode to prevent
+   * OpenSSL from creating an internal session cache.
+   */
+  SSL_CTX_set_session_cache_mode(ctx->ossl.ssl_ctx,
+                                 SSL_SESS_CACHE_CLIENT |
+                                 SSL_SESS_CACHE_NO_INTERNAL);
+  SSL_CTX_sess_set_new_cb(ctx->ossl.ssl_ctx, quic_ossl_new_session_cb);
+
 #elif defined(USE_GNUTLS)
-  if(ngtcp2_crypto_gnutls_configure_client_session(ctx->gtls->session) != 0) {
+  if(ngtcp2_crypto_gnutls_configure_client_session(ctx->gtls.session) != 0) {
     failf(data, "ngtcp2_crypto_gnutls_configure_client_session failed");
     return CURLE_FAILED_INIT;
   }
@@ -1959,17 +1997,22 @@ static CURLcode cf_connect_start(struct Curl_cfilter *cf,
   ctx->max_idle_ms = CURL_QUIC_MAX_IDLE_MS;
   Curl_bufcp_init(&ctx->stream_bufcp, H3_STREAM_CHUNK_SIZE,
                   H3_STREAM_POOL_SPARES);
+  Curl_dyn_init(&ctx->scratch, CURL_MAX_HTTP_HEADER);
 
-  result = Curl_ssl_peer_init(&ctx->peer, cf);
+  result = Curl_ssl_peer_init(&ctx->peer, cf, TRNSPRT_QUIC);
   if(result)
     return result;
 
 #define H3_ALPN "\x2h3\x5h3-29"
   result = Curl_vquic_tls_init(&ctx->tls, cf, data, &ctx->peer,
                                H3_ALPN, sizeof(H3_ALPN) - 1,
-                               tls_ctx_setup, &ctx->conn_ref);
+                               tls_ctx_setup, &ctx->tls, &ctx->conn_ref);
   if(result)
     return result;
+
+#ifdef USE_OPENSSL
+  SSL_set_quic_use_legacy_codepoint(ctx->tls.ossl.ssl, 0);
+#endif
 
   ctx->dcid.datalen = NGTCP2_MAX_CIDLEN;
   result = Curl_rand(data, ctx->dcid.data, NGTCP2_MAX_CIDLEN);
@@ -2012,8 +2055,10 @@ static CURLcode cf_connect_start(struct Curl_cfilter *cf,
   if(rc)
     return CURLE_QUIC_CONNECT_ERROR;
 
-#ifdef USE_GNUTLS
-  ngtcp2_conn_set_tls_native_handle(ctx->qconn, ctx->tls.gtls->session);
+#ifdef USE_OPENSSL
+  ngtcp2_conn_set_tls_native_handle(ctx->qconn, ctx->tls.ossl.ssl);
+#elif defined(USE_GNUTLS)
+  ngtcp2_conn_set_tls_native_handle(ctx->qconn, ctx->tls.gtls.session);
 #else
   ngtcp2_conn_set_tls_native_handle(ctx->qconn, ctx->tls.ssl);
 #endif
