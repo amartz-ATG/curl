@@ -164,7 +164,7 @@
 #endif
 
 /* Define if you have the strdup function. */
-//#define HAVE_STRDUP 0 //AMARTZ TODO:
+//#define HAVE_STRDUP 1
 
 /* Define if you have the stricmp function. */
 #define HAVE_STRICMP 1

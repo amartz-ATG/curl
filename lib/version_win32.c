@@ -77,7 +77,18 @@ bool curlx_verify_windows_version(const unsigned int majorVersion,
 {
   bool matched = FALSE;
 
-#if defined(CURL_WINDOWS_APP) || (defined(WINAPI_FAMILY) && (WINAPI_FAMILY == WINAPI_FAMILY_GAMES))
+#if (defined(WINAPI_FAMILY) && (WINAPI_FAMILY == WINAPI_FAMILY_GAMES))
+
+  switch (condition) 
+  {
+  case VERSION_LESS_THAN:          matched = FALSE; break;
+  case VERSION_LESS_THAN_EQUAL:    matched = FALSE; break;
+  case VERSION_EQUAL:              matched = FALSE; break;
+  case VERSION_GREATER_THAN_EQUAL: matched = TRUE; break;
+  case VERSION_GREATER_THAN:       matched = TRUE; break;
+  }
+
+#elif defined(CURL_WINDOWS_APP)
   (void)buildVersion;
 
   /* We have no way to determine the Windows version from Windows apps,
