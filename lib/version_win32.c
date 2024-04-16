@@ -78,6 +78,11 @@ bool curlx_verify_windows_version(const unsigned int majorVersion,
   bool matched = FALSE;
 
 #if (defined(WINAPI_FAMILY) && (WINAPI_FAMILY == WINAPI_FAMILY_GAMES))
+  
+  (void)majorVersion;
+  (void)minorVersion;
+  (void)buildVersion;
+  (void)platform;
 
   switch (condition) 
   {
