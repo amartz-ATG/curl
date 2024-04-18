@@ -209,6 +209,8 @@ char *curl_version(void)
   src[i++] = idn_version;
 #elif defined(USE_WIN32_IDN)
   src[i++] = (char *)"WinIDN";
+#elif defined(USE_APPLE_IDN)
+  src[i++] = (char *)"AppleIDN";
 #endif
 
 #ifdef USE_LIBPSL
@@ -417,6 +419,14 @@ static int https_proxy_present(curl_version_info_data *info)
 }
 #endif
 
+#if defined(USE_SSL) && defined(USE_ECH)
+static int ech_present(curl_version_info_data *info)
+{
+  (void) info;
+  return Curl_ssl_supports(NULL, SSLSUPP_ECH);
+}
+#endif
+
 /*
  * Features table.
  *
@@ -445,6 +455,9 @@ static const struct feat features_table[] = {
 #ifdef DEBUGBUILD
   FEATURE("Debug",       NULL,                CURL_VERSION_DEBUG),
 #endif
+#if defined(USE_SSL) && defined(USE_ECH)
+  FEATURE("ECH",         ech_present,         0),
+#endif
 #ifdef USE_GSASL
   FEATURE("gsasl",       NULL,                CURL_VERSION_GSASL),
 #endif
@@ -464,7 +477,7 @@ static const struct feat features_table[] = {
   !defined(CURL_DISABLE_HTTP)
   FEATURE("HTTPS-proxy", https_proxy_present, CURL_VERSION_HTTPS_PROXY),
 #endif
-#if defined(USE_LIBIDN2) || defined(USE_WIN32_IDN)
+#if defined(USE_LIBIDN2) || defined(USE_WIN32_IDN) || defined(USE_APPLE_IDN)
   FEATURE("IDN",         idn_present,         CURL_VERSION_IDN),
 #endif
 #ifdef USE_IPV6
