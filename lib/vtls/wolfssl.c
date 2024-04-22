@@ -1483,21 +1483,6 @@ static CURLcode wolfssl_sha256sum(const unsigned char *tmp, /* input */
   return CURLE_OK;
 }
 
-static CURLcode wolfssl_sha1sum(const unsigned char* tmp, /* input */
-	size_t tmplen,
-	unsigned char* sha256sum /* output */,
-	size_t unused)
-{
-    //AMARTZ TODO:
-	/*wc_Sha256 SHA256pw;
-	(void)unused;
-	if (wc_InitSha256(&SHA256pw))
-		return CURLE_FAILED_INIT;
-	wc_Sha256Update(&SHA256pw, tmp, (word32)tmplen);
-	wc_Sha256Final(&SHA256pw, sha256sum);*/
-	return CURLE_OK;
-}
-
 static void *wolfssl_get_internals(struct ssl_connect_data *connssl,
                                    CURLINFO info UNUSED_PARAM)
 {

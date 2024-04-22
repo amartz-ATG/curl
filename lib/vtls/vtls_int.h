@@ -142,9 +142,6 @@ struct Curl_ssl {
                         char *buf, size_t len, CURLcode *code);
   ssize_t (*send_plain)(struct Curl_cfilter *cf, struct Curl_easy *data,
                         const void *mem, size_t len, CURLcode *code);
-
-  CURLcode(*sha1sum)(const unsigned char* input, size_t inputlen,
-	  unsigned char* sha1sum, size_t sha1sumlen);
 };
 
 extern const struct Curl_ssl *Curl_ssl;
