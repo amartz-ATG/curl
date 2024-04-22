@@ -74,6 +74,14 @@
 #endif
 
 #ifdef USE_SCHANNEL
+
+//AMARTZ TODO: this is a hack
+typedef struct _UNICODE_STRING {
+	USHORT Length;
+	USHORT MaximumLength;
+	PWSTR Buffer;
+} UNICODE_STRING, * PUNICODE_STRING;
+
 /* Must set this before <schannel.h> is included directly or indirectly by
    another Windows header. */
 #  define SCHANNEL_USE_BLACKLISTS 1

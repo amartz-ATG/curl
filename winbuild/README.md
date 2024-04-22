@@ -114,8 +114,6 @@ where `<options>` is one or many of:
  - `SSL_PATH=<path>`             - Custom path for OpenSSL
  - `ZLIB_PATH=<path>`            - Custom path for zlib
 
- - `WITH_GDK=<yes/no>`           - Enable Microsoft Game Development Kit support
-
 ## Static linking of Microsoft's C runtime (CRT):
 
  If you are using mode=static nmake will create and link to the static build

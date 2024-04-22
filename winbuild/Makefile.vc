@@ -134,15 +134,6 @@ USE_UNICODE = true
 USE_UNICODE = false
 !ENDIF
 
-!IFNDEF WITH_GDK
-USE_GDK = false
-!ELSEIF "$(WITH_GDK)"=="yes"
-USE_GDK = true
-USE_UNICODE = true
-!ELSEIF "$(WITH_GDK)"=="no"
-USE_GDK = false
-!ENDIF
-
 CONFIG_NAME_LIB = libcurl
 
 !IF "$(WITH_SSL)"=="dll"
